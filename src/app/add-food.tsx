@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { FoodPhoto } from '@/components/food-photo';
-import { AppText, Button, Card, Notice, NumberStepper, Screen, parseDecimal } from '@/components/ui';
+import { AppText, Button, Card, Chip, Notice, NumberStepper, Screen, parseDecimal } from '@/components/ui';
 import { FOOD_CATEGORIES, FOODS, type Food, type Nutrients } from '@/data/foods';
 import {
   customFromProduct,
@@ -21,6 +21,24 @@ import { formatDate, formatMoney, formatNumber } from '@/lib/format';
 import { itemNutrients, type MealItem } from '@/lib/meal-generator';
 import { useAppStore, useDaysStore } from '@/store/app-store';
 import { Radius, Space, useColors } from '@/theme/colors';
+
+/** Quick browse buttons: each runs a search in the store catalog. */
+const BROWSE: { key: string; query: { en: string; hr: string } }[] = [
+  { key: 'snacks', query: { en: 'cips', hr: 'čips' } },
+  { key: 'chocolate', query: { en: 'cokolada', hr: 'čokolada' } },
+  { key: 'biscuits', query: { en: 'keks', hr: 'keks' } },
+  { key: 'juice', query: { en: 'sok', hr: 'sok' } },
+  { key: 'bread', query: { en: 'kruh', hr: 'kruh' } },
+  { key: 'yogurt', query: { en: 'jogurt', hr: 'jogurt' } },
+  { key: 'cheese', query: { en: 'sir', hr: 'sir' } },
+  { key: 'meat', query: { en: 'salama', hr: 'salama' } },
+  { key: 'fish', query: { en: 'tuna', hr: 'tuna' } },
+  { key: 'frozen', query: { en: 'smrz', hr: 'smrz' } },
+  { key: 'cereal', query: { en: 'pahuljice', hr: 'pahuljice' } },
+  { key: 'spreads', query: { en: 'namaz', hr: 'namaz' } },
+  { key: 'icecream', query: { en: 'sladoled', hr: 'sladoled' } },
+  { key: 'pastry', query: { en: 'burek', hr: 'burek' } },
+];
 
 type Selected =
   | { kind: 'food'; food: Food }
@@ -44,10 +62,10 @@ export default function AddFood() {
   const [catalogError, setCatalogError] = useState(false);
   const [manual, setManual] = useState({ kcal: '', protein: '', carbs: '', fat: '' });
 
-  // Load the store catalog the first time the user searches.
+  // Start loading the store catalog as soon as the screen opens, so search is instant.
   const searching = query.trim().length >= 2;
   useEffect(() => {
-    if (!searching || catalog || catalogError) return;
+    if (catalog || catalogError) return;
     let cancelled = false;
     loadCatalog()
       .then((p) => !cancelled && setCatalog(p))
@@ -55,7 +73,7 @@ export default function AddFood() {
     return () => {
       cancelled = true;
     };
-  }, [searching, catalog, catalogError]);
+  }, [catalog, catalogError]);
 
   const q = fold(query.trim());
   const ownFoods = useMemo(() => {
@@ -229,9 +247,21 @@ export default function AddFood() {
               )}
             </Card>
           ) : (
-            <AppText variant="caption" color="textSecondary">
-              {t('extras.searchHint')}
-            </AppText>
+            <Card style={[styles.list, { backgroundColor: c.woodSoft, borderColor: c.woodSoft }]}>
+              <AppText variant="heading">
+                {catalog
+                  ? t('extras.catalogCount', { n: formatNumber(catalog.length, language) })
+                  : t('extras.catalogLoading')}
+              </AppText>
+              <AppText variant="caption" color="textSecondary">
+                {t('extras.searchHint')}
+              </AppText>
+              <View style={styles.chips}>
+                {BROWSE.map((b) => (
+                  <Chip key={b.key} label={t(`extras.browse.${b.key}`)} tone="wood" onPress={() => setQuery(b.query[language])} />
+                ))}
+              </View>
+            </Card>
           )}
 
           <Card style={styles.list}>
@@ -395,6 +425,7 @@ const styles = StyleSheet.create({
   iconBubble: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   bigIcon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
   manual: { gap: Space.sm },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Space.sm, marginTop: Space.sm },
   manualInput: { borderWidth: 1, borderRadius: Radius.md, width: 100, height: 40, paddingHorizontal: 10, fontSize: 16, textAlign: 'right' },
   search: {
     flexDirection: 'row',
