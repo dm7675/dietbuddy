@@ -6,8 +6,9 @@ import PRICE_DATA from '@/data/prices.json';
 
 import { CHAIN_IDS, type PriceOverrides } from './prices';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, '') ?? '';
-const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+// Trimmed: values pasted into a hosting dashboard often carry a stray space or line break.
+const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL ?? '').trim().replace(/\/$/, '');
+const SUPABASE_KEY = (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '').trim();
 
 /** The single Supabase function that does all AI work (receipts and recipes). */
 export const AI_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/dietbuddy-ai`;
