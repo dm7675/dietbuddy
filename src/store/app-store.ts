@@ -9,6 +9,7 @@ import type { MealItem, MealSlot, PlannedMeal, Swaps } from '@/lib/meal-generato
 import type { Pace, Profile } from '@/lib/nutrition';
 import { DEFAULT_PREFERENCES, type FoodPreferences } from '@/lib/preferences';
 import type { Budget, PriceOverrides } from '@/lib/prices';
+import type { CustomFood } from '@/lib/catalog';
 import type { Recipe } from '@/lib/recipes';
 
 interface AppState {
@@ -33,6 +34,9 @@ interface AppState {
   /** Recipes already written, by meal (see recipeKey). Keeps the most recent 40. */
   recipes: Record<string, Recipe>;
   saveRecipe: (key: string, recipe: Recipe) => void;
+  /** Store products you've logged (newest last), for quick re-adding. */
+  myFoods: CustomFood[];
+  rememberFood: (food: CustomFood) => void;
   setLanguage: (lang: Language) => void;
   setProfile: (profile: Profile) => void;
   setPace: (pace: Pace) => void;
@@ -68,6 +72,8 @@ export const useAppStore = create<AppState>()(
         }),
       clearMyPrices: () => set({ myPrices: {} }),
       setCommunity: (community) => set({ community }),
+      myFoods: [],
+      rememberFood: (food) => set((s) => ({ myFoods: [...s.myFoods.filter((f) => f.id !== food.id), food].slice(-60) })),
       recipes: {},
       saveRecipe: (key, recipe) =>
         set((s) => {
@@ -109,14 +115,16 @@ export const useAppStore = create<AppState>()(
           myPrices: {},
           community: null,
           recipes: {},
+          myFoods: [],
         }),
     }),
     {
       name: 'dietbuddy-app',
-      version: 6,
+      version: 7,
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: ({ language, profile, pace, prefs, weights, city, stores, budget, myPrices, community, recipes }) => ({
+      partialize: ({ language, profile, pace, prefs, weights, city, stores, budget, myPrices, community, recipes, myFoods }) => ({
         recipes,
+        myFoods,
         myPrices,
         community,
         language,
@@ -135,6 +143,7 @@ export const useAppStore = create<AppState>()(
         if (version < 4) Object.assign(state, { city: null, stores: [], budget: null });
         if (version < 5) Object.assign(state, { myPrices: {}, community: null });
         if (version < 6) Object.assign(state, { recipes: {} });
+        if (version < 7) Object.assign(state, { myFoods: [] });
         return state;
       },
       onRehydrateStorage: () => (state) => {
@@ -161,6 +170,8 @@ export interface DayLog {
   extras?: ExtraItem[];
   /** A planned cheat day: tastier food at maintenance calories. */
   cheat?: boolean;
+  /** Water drunk that day, in ml. */
+  waterMl?: number;
 }
 
 export interface ExtraItem extends MealItem {
@@ -178,6 +189,7 @@ interface DaysState {
   setEaten: (date: string, slot: MealSlot, meal: PlannedMeal | null) => void;
   addExtra: (date: string, item: MealItem) => void;
   setCheat: (date: string, on: boolean) => void;
+  addWater: (date: string, ml: number) => void;
   removeExtra: (date: string, id: string) => void;
   resetDays: () => void;
 }
@@ -217,6 +229,12 @@ export const useDaysStore = create<DaysState>()(
         set((s) => {
           const day = s.days[date] ?? EMPTY_DAY;
           return { days: { ...s.days, [date]: { ...day, cheat: on } } };
+        }),
+      addWater: (date, ml) =>
+        set((s) => {
+          const day = s.days[date] ?? EMPTY_DAY;
+          const waterMl = Math.max(0, Math.min(10_000, (day.waterMl ?? 0) + ml));
+          return { days: { ...s.days, [date]: { ...day, waterMl } } };
         }),
       removeExtra: (date, id) =>
         set((s) => {

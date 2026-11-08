@@ -70,6 +70,7 @@ export default function Track() {
         <MacroRow label={t('today.carbs')} value={totals.carbs} target={day.targets.carbsG} color={c.carbs} />
         <MacroRow label={t('today.fat')} value={totals.fat} target={day.targets.fatG} color={c.fat} />
         <MacroRow label={t('today.fiber')} value={totals.fiber} target={day.targets.fiberG} color={c.primaryDark} />
+        <MacroRow label={t('water.title')} value={day.waterMl} target={day.targets.waterMl} color="#3A86C8" unit="ml" />
       </Card>
 
       <Card style={styles.gapMd}>

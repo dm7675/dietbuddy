@@ -57,6 +57,7 @@ function computeDay(date: string, days: Record<string, DayLog>, ctx: Context) {
     meals,
     eaten: log.eaten,
     extras,
+    waterMl: log.waterMl ?? 0,
     hasEaten: eatenItems.length > 0,
     planned: sumNutrients(plannedItems),
     plannedItems,

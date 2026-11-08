@@ -31,6 +31,8 @@ const SLOT_TYPE: Record<MealSlot, MealType> = {
 export interface MealItem {
   foodId: string;
   grams: number;
+  /** A store product that isn't one of the app's planned foods (e.g. Smoki): its own nutrition. */
+  custom?: { name: string; per100: Nutrients; pricePerKg?: number };
   role?: PartRole;
   /** Portion cap from the meal template, kept for the day-level balancing. */
   maxG?: number;
@@ -47,15 +49,15 @@ export type MealTarget = Pick<Nutrients, 'kcal' | 'protein' | 'carbs' | 'fat'>;
 /* ---------- Nutrition math ---------- */
 
 export function itemNutrients(item: MealItem): Nutrients {
-  const f = FOOD_BY_ID[item.foodId];
+  const per100 = item.custom?.per100 ?? FOOD_BY_ID[item.foodId]?.per100;
   const k = item.grams / 100;
-  if (!f) return { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+  if (!per100) return { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
   return {
-    kcal: f.per100.kcal * k,
-    protein: f.per100.protein * k,
-    carbs: f.per100.carbs * k,
-    fat: f.per100.fat * k,
-    fiber: f.per100.fiber * k,
+    kcal: per100.kcal * k,
+    protein: per100.protein * k,
+    carbs: per100.carbs * k,
+    fat: per100.fat * k,
+    fiber: per100.fiber * k,
   };
 }
 

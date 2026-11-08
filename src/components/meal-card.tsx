@@ -25,6 +25,7 @@ export const SLOT_ICON: Record<MealSlot, IconName> = {
 
 /** "150 g Chicken breast" or "2× Egg (110 g)". */
 export function itemLabel(item: MealItem, lang: Language): string {
+  if (item.custom) return `${item.grams} g ${item.custom.name}`;
   const food = FOOD_BY_ID[item.foodId];
   if (!food) return `${item.grams} g`;
   const name = food.name[lang];

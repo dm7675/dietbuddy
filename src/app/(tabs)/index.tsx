@@ -6,6 +6,7 @@ import { CalorieRing } from '@/components/calorie-ring';
 import { CheatCard } from '@/components/cheat-card';
 import { DayMeals } from '@/components/day-meals';
 import { ExtrasCard } from '@/components/extras-card';
+import { WaterCard } from '@/components/water-card';
 import { GapTips } from '@/components/nutrient-panels';
 import { AppText, Card, ProgressBar, Screen, type IconName } from '@/components/ui';
 import { TAB_BAR_HEIGHT } from '@/components/wood-tab-bar';
@@ -72,6 +73,8 @@ export default function Today() {
           {t('meals.planned', { kcal: fmt(day.planned.kcal) })} · {t('shop.todayCost', { cost: formatMoney(day.plannedCost, language) })}
         </AppText>
       </Card>
+
+      <WaterCard date={today} targetMl={targets.waterMl} />
 
       <GapTips gaps={day.plannedGaps.slice(0, 1)} compact />
 

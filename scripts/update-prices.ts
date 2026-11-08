@@ -102,8 +102,13 @@ const CAN_BE_LOOSE = new Set([
   'chicken_breast', 'turkey_breast', 'beef_mince', 'pork_loin', 'salmon', 'hake', 'ham', 'turkey_ham', 'gouda', 'feta',
   'cevapi', 'bacon', 'lettuce', 'tomato', 'cucumber', 'pepper', 'broccoli', 'zucchini', 'carrot', 'spinach', 'chard',
   'green_beans', 'cabbage', 'mushrooms', 'potatoes', 'sweet_potato', 'banana', 'apple', 'orange', 'pear', 'mandarin',
-  'kiwi', 'strawberries', 'avocado',
+  'kiwi', 'strawberries', 'avocado', 'mackerel', 'trout', 'squid', 'shrimp', 'chicken_thigh', 'beef_steak', 'cauliflower',
+  'eggplant', 'onion', 'beetroot', 'plums', 'peach', 'grapes', 'watermelon', 'sauerkraut',
 ]);
+
+/** Things in food categories (or chains without categories) that clearly aren't food. */
+const NOT_FOOD_NAME =
+  /\b(sampon\w*|deterdzent\w*|omeksiv\w*|papir\w*|maramic\w*|pelen\w*|ulozak|ulosci|dezodor\w*|zub\w*|cetkic\w*|baterij\w*|vrecic\w* za smece|folij\w*|sredstv\w*|spuzv\w*|krema za|losion\w*|sapun\w*|tablete za|za pse|za mace|psec\w*|macj\w*|whiskas|friskies|pedigree|felix|cigaret\w*|duhan\w*|upaljac\w*|svijec\w*|zarulj\w*|igrack\w*|lonac|tava|noz|ruc?nik\w*|boj\w* za kosu|lak za|kozmet\w*|parfem\w*|toaletn\w*|wc|ariel|persil|jar|fairy|domestos|cif|vanish|lenor|gel za|pena za|britv\w*|vlazn\w* maram\w*|kondom\w*|flaster\w*|vitamin\w* tbl|cvijec\w*|zemlj\w*|grill ugljen|ugljen|drva|podlog\w*|vata|stapic\w* za usi|smoking|rizl\w*|tobak\w*)\b/;
 
 /** One way to buy a food in a store: g = edible grams in the pack (0 = loose, sold by weight). */
 interface Pack {
@@ -172,6 +177,8 @@ async function main() {
     : null;
   const { dir, date, cleanup } = await getArchiveDir();
   const prices: Record<string, Record<string, number>> = {};
+  // Every food product in the stores (by barcode), for logging anything you eat.
+  const catalog = new Map<string, { name: string; price: number; sizeG: number }>();
   // food → chain → [[edible grams per pack (0 = loose), price], …]
   const packs: Record<string, Record<string, [number, number][]>> = {};
   const chains: Record<string, { name: string; cities: string[] }> = {};
@@ -198,9 +205,18 @@ async function main() {
     // product id → food ids it matches
     const productFood = new Map<string, string>();
     const productName = new Map<string, string>();
+    // product id → barcode, for the full product catalog
+    const catalogIds = new Map<string, string>();
     for await (const p of csvRows(path.join(chainDir, 'products.csv'))) {
       const n = normalize(p.name);
       if (NON_FOOD_CATEGORY.test(normalize(p.category ?? ''))) continue;
+      if (/^\d{8,14}$/.test(p.barcode) && !NOT_FOOD_NAME.test(n)) {
+        catalogIds.set(p.product_id, p.barcode);
+        const entry = catalog.get(p.barcode);
+        // Prefer a nicely cased name ("Smoki flips") over ALL CAPS.
+        if (!entry) catalog.set(p.barcode, { name: p.name.trim(), price: Infinity, sizeG: 0 });
+        else if (entry.name === entry.name.toUpperCase() && p.name !== p.name.toUpperCase()) entry.name = p.name.trim();
+      }
       const globallyExcluded = GLOBAL_EXCLUDE.test(n);
       for (const [foodId, m] of Object.entries(MATCHERS)) {
         if (globallyExcluded && !m.skipGlobal) continue;
@@ -219,6 +235,17 @@ async function main() {
     const unitPrices = new Map<string, number[]>();
     const shelfPrices = new Map<string, number[]>();
     for await (const r of csvRows(path.join(chainDir, 'prices.csv'))) {
+      const ean = catalogIds.get(r.product_id);
+      if (ean) {
+        const shelfPrice = Number.parseFloat(r.price.replace(',', '.'));
+        const unitPrice = Number.parseFloat(r.unit_price.replace(',', '.'));
+        const entry = catalog.get(ean)!;
+        if (shelfPrice > 0 && shelfPrice < entry.price) {
+          entry.price = shelfPrice;
+          const g = unitPrice > 0 ? Math.round((shelfPrice / unitPrice) * 1000) : 0;
+          entry.sizeG = g >= 5 && g <= 10_000 && Math.abs(g - 1000) > 1 ? g : entry.sizeG;
+        }
+      }
       if (!productFood.has(r.product_id)) continue;
       const v = Number.parseFloat(r.unit_price.replace(',', '.'));
       const shelf = Number.parseFloat(r.price.replace(',', '.'));
@@ -317,6 +344,16 @@ async function main() {
   };
   writeFileSync(file, JSON.stringify(out));
   console.log(`\nWrote ${file}`);
+
+  // Product catalog, served by the website and downloaded only when you search for a product.
+  // Rows: [barcode, name, pack grams (0 = unknown), lowest shelf price in €].
+  const rows = [...catalog]
+    .filter(([, e]) => Number.isFinite(e.price))
+    .map(([ean, e]) => [ean, e.name, e.sizeG, Math.round(e.price * 100) / 100]);
+  const catalogFile = path.join(import.meta.dirname, '..', 'public', 'catalog.json');
+  mkdirSync(path.dirname(catalogFile), { recursive: true });
+  writeFileSync(catalogFile, JSON.stringify({ date, products: rows }));
+  console.log(`Wrote ${catalogFile} (${rows.length} products)`);
   } finally {
     cleanup?.();
   }

@@ -71,7 +71,10 @@ export function bestPrice(foodId: string, pricing?: Pricing): { price: number; c
 
 export function itemsCost(items: MealItem[], pricing?: Pricing): number {
   let total = 0;
-  for (const it of items) total += ((bestPrice(it.foodId, pricing)?.price ?? 0) * it.grams) / 1000;
+  for (const it of items) {
+    const perKg = it.custom ? (it.custom.pricePerKg ?? 0) : (bestPrice(it.foodId, pricing)?.price ?? 0);
+    total += (perKg * it.grams) / 1000;
+  }
   return total;
 }
 
