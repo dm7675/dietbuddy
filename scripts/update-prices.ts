@@ -97,6 +97,22 @@ async function* csvRows(file: string) {
 /** How many words come before a character position. */
 const wordIndex = (s: string, at: number) => (s.slice(0, at).match(/ /g) ?? []).length;
 
+/** Foods you can really buy by weight (meat/fish/deli counter, fruit & veg). Everything else comes in packs. */
+const CAN_BE_LOOSE = new Set([
+  'chicken_breast', 'turkey_breast', 'beef_mince', 'pork_loin', 'salmon', 'hake', 'ham', 'turkey_ham', 'gouda', 'feta',
+  'cevapi', 'bacon', 'lettuce', 'tomato', 'cucumber', 'pepper', 'broccoli', 'zucchini', 'carrot', 'spinach', 'chard',
+  'green_beans', 'cabbage', 'mushrooms', 'potatoes', 'sweet_potato', 'banana', 'apple', 'orange', 'pear', 'mandarin',
+  'kiwi', 'strawberries', 'avocado',
+]);
+
+/** One way to buy a food in a store: g = edible grams in the pack (0 = loose, sold by weight). */
+interface Pack {
+  g: number;
+  /** Shelf price of the pack, or € per edible kg when loose. */
+  price: number;
+  loose: boolean;
+}
+
 const median = (xs: number[]) => {
   const s = [...xs].sort((a, b) => a - b);
   return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
@@ -156,6 +172,8 @@ async function main() {
     : null;
   const { dir, date, cleanup } = await getArchiveDir();
   const prices: Record<string, Record<string, number>> = {};
+  // food → chain → [[edible grams per pack (0 = loose), price], …]
+  const packs: Record<string, Record<string, [number, number][]>> = {};
   const chains: Record<string, { name: string; cities: string[] }> = {};
   try {
   const samples: Record<string, Record<string, string[]>> = {};
@@ -197,29 +215,48 @@ async function main() {
       }
     }
 
-    // product id → unit prices across stores
+    // product id → shelf prices and unit (per kg / per piece) prices across stores
     const unitPrices = new Map<string, number[]>();
+    const shelfPrices = new Map<string, number[]>();
     for await (const r of csvRows(path.join(chainDir, 'prices.csv'))) {
       if (!productFood.has(r.product_id)) continue;
       const v = Number.parseFloat(r.unit_price.replace(',', '.'));
+      const shelf = Number.parseFloat(r.price.replace(',', '.'));
       if (!Number.isFinite(v) || v <= 0) continue;
-      const list = unitPrices.get(r.product_id) ?? [];
-      list.push(v);
-      unitPrices.set(r.product_id, list);
+      (unitPrices.get(r.product_id) ?? unitPrices.set(r.product_id, []).get(r.product_id)!).push(v);
+      if (Number.isFinite(shelf) && shelf > 0) {
+        (shelfPrices.get(r.product_id) ?? shelfPrices.set(r.product_id, []).get(r.product_id)!).push(shelf);
+      }
     }
 
-    // food → per-kg prices of each matching product
-    const perFood = new Map<string, { price: number; name: string }[]>();
+    // food → per-kg prices and pack details of each matching product
+    const perFood = new Map<string, { price: number; name: string; pack: Pack | null }[]>();
     for (const [pid, list] of unitPrices) {
       const foodId = productFood.get(pid)!;
       const m = MATCHERS[foodId];
-      let perKg = median(list);
-      if (m.unit === 'piece') perKg = perKg / ((m.pieceG ?? 55) / 1000);
-      const dried = m.dryYield !== undefined && !CANNED.test(normalize(productName.get(pid)!));
-      perKg = perKg / (dried ? m.dryYield! : (m.yield ?? 1));
+      const unit = median(list);
+      const name = productName.get(pid)!;
+      const dried = m.dryYield !== undefined && !CANNED.test(normalize(name));
+      const factor = dried ? m.dryYield! : (m.yield ?? 1);
+      const pieceKg = (m.pieceG ?? 55) / 1000;
+      const perKg = (m.unit === 'piece' ? unit / pieceKg : unit) / factor;
       if (perKg < m.range[0] || perKg > m.range[1]) continue;
+
+      // Pack size = shelf price ÷ unit price (kg, or pieces for eggs).
+      const shelf = shelfPrices.has(pid) ? median(shelfPrices.get(pid)!) : null;
+      let pack: Pack | null = null;
+      if (shelf) {
+        const amount = shelf / unit; // kg (or pieces)
+        const boughtG = m.unit === 'piece' ? amount * pieceKg * 1000 : amount * 1000;
+        const looksLoose =
+          CAN_BE_LOOSE.has(foodId) &&
+          Math.abs(amount - 1) < 0.02 &&
+          (!/\d+([.,]\d+)?\s?(kg|g|l|ml)\b/i.test(name) || /\bc?ca\b/i.test(name));
+        if (looksLoose) pack = { g: 0, price: perKg, loose: true };
+        else if (boughtG >= 20 && boughtG <= 6000) pack = { g: Math.round(boughtG * factor), price: shelf, loose: false };
+      }
       const arr = perFood.get(foodId) ?? [];
-      arr.push({ price: perKg, name: productName.get(pid)! });
+      arr.push({ price: perKg, name, pack });
       perFood.set(foodId, arr);
     }
 
@@ -229,6 +266,21 @@ async function main() {
         0.25,
       );
       (prices[foodId] ??= {})[code] = Math.round(value * 100) / 100;
+
+      // Up to 4 ways to buy it: the cheapest per kg, the smallest pack, and loose if sold by weight.
+      const options = items.filter((i) => i.pack).sort((a, b) => a.price - b.price);
+      const chosen: Pack[] = [];
+      const add = (p: Pack) => {
+        if (!chosen.some((c) => c.loose === p.loose && c.g === p.g)) chosen.push(p);
+      };
+      const loose = options.find((o) => o.pack!.loose);
+      if (loose) add(loose.pack!);
+      options.filter((o) => !o.pack!.loose).slice(0, 3).forEach((o) => add(o.pack!));
+      const smallest = options.filter((o) => !o.pack!.loose).sort((a, b) => a.pack!.g - b.pack!.g)[0];
+      if (smallest) add(smallest.pack!);
+      if (chosen.length) {
+        (packs[foodId] ??= {})[code] = chosen.slice(0, 4).map((p) => [p.g, Math.round(p.price * 100) / 100]);
+      }
       if (report) {
         (samples[foodId] ??= {})[code] = items
           .sort((a, b) => a.price - b.price)
@@ -254,6 +306,8 @@ async function main() {
     note: '€ per kg of the food as the app counts it (edible / drained weight).',
     chains,
     prices,
+    // Real ways to buy each food: [edible grams in the pack, shelf price]; grams 0 = loose (price is €/kg).
+    packs,
     // Edible share of the bought weight — receipts list bought weight, so the app divides by this.
     yields: Object.fromEntries(
       Object.entries(MATCHERS)

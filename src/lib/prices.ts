@@ -95,29 +95,78 @@ export function dailyBudget(b: Budget | null): number | null {
   return b.mode === 'daily' ? b.amount : b.amount / 7;
 }
 
+/* ---------- Buying real packs ---------- */
+
+const PACKS = (PRICE_DATA as unknown as { packs?: Record<string, Record<string, [number, number][]>> }).packs ?? {};
+
+/** What you actually put in the basket for one food. */
+export interface Purchase {
+  /** What you pay at the till. */
+  cost: number;
+  /** Sold by weight (meat counter, fruit & veg): you buy exactly what you need. */
+  loose: boolean;
+  /** Number of packs and edible grams per pack (when not loose). */
+  count: number;
+  packG: number;
+}
+
+/**
+ * Cheapest way to buy at least `needG` grams of a food in one store, using that store's
+ * real pack sizes. Receipt prices (overrides) scale the pack prices.
+ */
+export function purchase(foodId: string, chain: string, needG: number, pricing?: Pricing): Purchase | null {
+  const options = PACKS[foodId]?.[chain];
+  const listPerKg = DATA.prices[foodId]?.[chain];
+  const override = pricing?.overrides?.[foodId]?.[chain];
+  const scale = override && listPerKg ? override / listPerKg : 1;
+
+  let best: Purchase | null = null;
+  for (const [g, price] of options ?? []) {
+    const option: Purchase =
+      g === 0
+        ? { cost: (price * scale * needG) / 1000, loose: true, count: 1, packG: needG }
+        : { cost: Math.ceil(needG / g) * price * scale, loose: false, count: Math.ceil(needG / g), packG: g };
+    // Cheapest wins; on a tie, the one with less left over.
+    if (!best || option.cost < best.cost - 0.005 || (Math.abs(option.cost - best.cost) <= 0.005 && option.count * option.packG < best.count * best.packG)) {
+      best = option;
+    }
+  }
+  if (best) return best;
+
+  // No pack data for this store: fall back to its price per kg.
+  const perKg = storePrice(foodId, chain, pricing);
+  return perKg === null ? null : { cost: (perKg * needG) / 1000, loose: true, count: 1, packG: needG };
+}
+
 /* ---------- Shopping list ---------- */
 
 export interface ShoppingLine {
   foodId: string;
+  /** Edible grams the plan needs. */
   grams: number;
+  /** What it costs at the till (whole packs). */
   cost: number;
-  /** Store it is cheapest at (null = no store has a price). */
+  /** Store it is bought at (null = no store has a price; estimated). */
   chain: string | null;
+  buy: Purchase | null;
 }
 
-/** Sums all items per food and prices each one at its cheapest store (or one fixed store). */
+/** Sums all items per food and buys each one where it's cheapest (or in one fixed store), in real packs. */
 export function shoppingList(items: MealItem[], pricing: Pricing, singleStore?: string): ShoppingLine[] {
   const grams = new Map<string, number>();
   for (const it of items) grams.set(it.foodId, (grams.get(it.foodId) ?? 0) + it.grams);
 
   return [...grams].map(([foodId, g]) => {
-    if (singleStore) {
-      const p = storePrice(foodId, singleStore, pricing) ?? bestPrice(foodId, { chains: [] })?.price ?? 0;
-      const has = storePrice(foodId, singleStore, pricing) !== null;
-      return { foodId, grams: g, cost: (p * g) / 1000, chain: has ? singleStore : null };
+    const chains = singleStore ? [singleStore] : pricing.chains.length ? pricing.chains : CHAIN_IDS;
+    let best: { chain: string; buy: Purchase } | null = null;
+    for (const chain of chains) {
+      const buy = purchase(foodId, chain, g, pricing);
+      if (buy && (!best || buy.cost < best.buy.cost)) best = { chain, buy };
     }
-    const best = bestPrice(foodId, pricing);
-    return { foodId, grams: g, cost: ((best?.price ?? 0) * g) / 1000, chain: best?.chain ?? null };
+    if (best) return { foodId, grams: g, cost: best.buy.cost, chain: best.chain, buy: best.buy };
+    // Nobody in these stores lists it: estimate with the national median price per kg.
+    const fallback = bestPrice(foodId, { chains: [] })?.price ?? 0;
+    return { foodId, grams: g, cost: (fallback * g) / 1000, chain: null, buy: null };
   });
 }
 

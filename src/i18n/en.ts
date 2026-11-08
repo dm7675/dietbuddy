@@ -218,7 +218,12 @@ const en = {
     total: 'Total',
     left: 'Still to buy',
     anyStore: 'Any store',
-    note: 'Prices from the stores’ official daily price lists ({{date}}). Prices in your shop can differ; packs are bigger than one portion.',
+    note: 'Prices are what you pay at the till for real pack sizes, from the stores’ official daily price lists ({{date}}). Prices in your shop can differ.',
+    buyPacks: '{{count}} × {{size}}',
+    byWeight: 'by weight (counter / loose)',
+    youNeed: 'you need {{amount}}',
+    estimated: 'estimated',
+    pcs: '{{n}} pcs',
     empty: 'Nothing to buy for these days.',
   },
   scan: {

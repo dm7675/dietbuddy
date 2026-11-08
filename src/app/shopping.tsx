@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useState } from 'react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -143,7 +144,7 @@ export default function Shopping() {
                   <View style={styles.flex}>
                     <AppText style={isDone ? styles.strike : undefined}>{food?.name[language] ?? l.foodId}</AppText>
                     <AppText variant="caption" color="textSecondary">
-                      {amountLabel(l, language)}
+                      {buyLabel(l, language, t)}
                     </AppText>
                   </View>
                   <AppText variant="label">{money(l.cost)}</AppText>
@@ -178,12 +179,19 @@ export default function Shopping() {
   );
 }
 
-/** "1,2 kg" / "450 g" / "6× (330 g)" for pieces. */
-function amountLabel(l: ShoppingLine, lang: 'en' | 'hr'): string {
-  const food = FOOD_BY_ID[l.foodId];
-  const weight = l.grams >= 1000 ? `${formatNumber(l.grams / 1000, lang, 1)} kg` : `${Math.round(l.grams)} g`;
-  if (food?.unitG) return `${formatNumber(Math.ceil((l.grams / food.unitG) * 2) / 2, lang, 1)}× · ${weight}`;
-  return weight;
+/** "450 g" / "1,2 kg", or pieces for eggs etc. ("10 pcs"). */
+function amount(grams: number, foodId: string, lang: 'en' | 'hr', t: TFunction): string {
+  const unit = FOOD_BY_ID[foodId]?.unitG;
+  if (unit && foodId === 'eggs') return t('shop.pcs', { n: Math.round(grams / unit) });
+  return grams >= 1000 ? `${formatNumber(grams / 1000, lang, 1)} kg` : `${Math.round(grams)} g`;
+}
+
+/** "1 × 500 g · you need 340 g" or "by weight · you need 390 g". */
+function buyLabel(l: ShoppingLine, lang: 'en' | 'hr', t: TFunction): string {
+  const need = t('shop.youNeed', { amount: amount(l.grams, l.foodId, lang, t) });
+  if (!l.buy) return `${need} · ${t('shop.estimated')}`;
+  if (l.buy.loose) return `${t('shop.byWeight')} · ${need}`;
+  return `${t('shop.buyPacks', { count: l.buy.count, size: amount(l.buy.packG, l.foodId, lang, t) })} · ${need}`;
 }
 
 const styles = StyleSheet.create({

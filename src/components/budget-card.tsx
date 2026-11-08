@@ -7,7 +7,8 @@ import { useDayPlans } from '@/hooks/use-day-plan';
 import { usePricing } from '@/hooks/use-pricing';
 import { dateKey, shiftDateKey } from '@/lib/dates';
 import { formatMoney } from '@/lib/format';
-import { chainName } from '@/lib/prices';
+import { MEAL_SLOTS } from '@/lib/meal-generator';
+import { chainName, shoppingList } from '@/lib/prices';
 import { useAppStore } from '@/store/app-store';
 import { Space, useColors } from '@/theme/colors';
 
@@ -40,7 +41,9 @@ export function BudgetCard() {
     );
   }
 
-  const weekCost = week.reduce((s, d) => s + d.plannedCost, 0);
+  // What the week's shopping costs at the till (whole packs), not just the grams you eat.
+  const weekItems = week.flatMap((d) => MEAL_SLOTS.flatMap((s) => (d.eaten[s] ?? d.meals[s])?.items ?? []));
+  const weekCost = shoppingList(weekItems, pricing).reduce((s, l) => s + l.cost, 0);
   const weekBudget = budget ? (budget.mode === 'weekly' ? budget.amount : budget.amount * 7) : null;
   const over = weekBudget !== null ? weekCost - weekBudget : 0;
 

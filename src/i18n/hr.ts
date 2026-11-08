@@ -221,7 +221,12 @@ const hr: Translations = {
     total: 'Ukupno',
     left: 'Još za kupiti',
     anyStore: 'Bilo koja trgovina',
-    note: 'Cijene iz službenih dnevnih cjenika trgovina ({{date}}). Cijene u tvojoj trgovini mogu se razlikovati; pakiranja su veća od jedne porcije.',
+    note: 'Cijene su ono što platiš na blagajni za stvarna pakiranja, iz službenih dnevnih cjenika trgovina ({{date}}). Cijene u tvojoj trgovini mogu se razlikovati.',
+    buyPacks: '{{count}} × {{size}}',
+    byWeight: 'na vagu (pult / rinfuza)',
+    youNeed: 'trebaš {{amount}}',
+    estimated: 'procjena',
+    pcs: '{{n}} kom',
     empty: 'Za ove dane nema ništa za kupiti.',
   },
   scan: {
