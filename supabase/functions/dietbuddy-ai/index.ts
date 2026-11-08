@@ -37,6 +37,18 @@ interface RecipeBody {
   meal: { name: string; ingredients: { name: string; grams: number }[] };
 }
 
+/** fetch with a time limit, so a slow or silent Google API gives a clear error instead of hanging. */
+async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(ms) });
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      throw new Error(`Google API did not answer within ${Math.round(ms / 1000)} s`);
+    }
+    throw e;
+  }
+}
+
 /* ---------- Model choice ---------- */
 
 let cachedModel: string | null = null;
@@ -47,7 +59,7 @@ async function pickModel(key: string): Promise<string> {
   if (fromEnv) return fromEnv;
   if (cachedModel) return cachedModel;
   try {
-    const res = await fetch(`${GEMINI}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } });
+    const res = await fetchWithTimeout(`${GEMINI}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } }, 10_000);
     const body = (await res.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[] };
     const flash = (body.models ?? [])
       .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
@@ -164,11 +176,15 @@ async function callGemini(key: string, model: string, parts: unknown[], schema: 
 
   let lastError = '';
   for (const generationConfig of configs) {
-    const res = await fetch(`${GEMINI}/models/${model}:generateContent`, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents, generationConfig }),
-    });
+    const res = await fetchWithTimeout(
+      `${GEMINI}/models/${model}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents, generationConfig }),
+      },
+      40_000,
+    );
     const body = await res.json().catch(() => ({}));
     if (res.status === 400) {
       lastError = JSON.stringify(body).slice(0, 300);
@@ -201,6 +217,24 @@ Deno.serve(async (req) => {
     raw = await req.json();
   } catch {
     return json(400, { error: 'Invalid JSON' });
+  }
+
+  // Setup check: which model is used and whether Google answers. Sends no prompt.
+  if (raw.task === 'health') {
+    const started = Date.now();
+    try {
+      const res = await fetchWithTimeout(`${GEMINI}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } }, 10_000);
+      const body = (await res.json().catch(() => ({}))) as { models?: { name: string }[]; error?: { message?: string } };
+      return json(200, {
+        googleStatus: res.status,
+        googleError: body.error?.message ?? null,
+        models: (body.models ?? []).map((m) => m.name.replace(/^models\//, '')).filter((n) => n.includes('flash')),
+        picked: res.ok ? await pickModel(key) : null,
+        ms: Date.now() - started,
+      });
+    } catch (e) {
+      return json(502, { error: e instanceof Error ? e.message : String(e), ms: Date.now() - started });
+    }
   }
 
   if (raw.task === 'recipe') {
