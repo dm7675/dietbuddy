@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "types": ["node"], "module": "esnext", "moduleResolution": "bundler", "noEmit": true },
+  "include": ["./**/*.ts", "../src/**/*.ts", "../src/**/*.tsx", "../expo-env.d.ts"],
+  "exclude": []
+}
