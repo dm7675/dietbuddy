@@ -9,6 +9,9 @@ import { CHAIN_IDS, type PriceOverrides } from './prices';
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, '') ?? '';
 const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
+/** The single Supabase function that does all AI work (receipts and recipes). */
+export const AI_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/dietbuddy-ai`;
+
 /** False until the Supabase URL and public key are in .env.local. */
 export const receiptsConfigured =
   (SUPABASE_URL.startsWith('https://') || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(SUPABASE_URL)) &&
@@ -16,7 +19,7 @@ export const receiptsConfigured =
 
 const YIELDS = (PRICE_DATA as { yields?: Record<string, number> }).yields ?? {};
 
-const headers = () => ({
+export const supabaseHeaders = () => ({
   apikey: SUPABASE_KEY,
   Authorization: `Bearer ${SUPABASE_KEY}`,
   'Content-Type': 'application/json',
@@ -41,9 +44,9 @@ export interface ReceiptResult {
 }
 
 export async function readReceipt(imageBase64: string): Promise<ReceiptResult> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/read-receipt`, {
+  const res = await fetch(AI_FUNCTION_URL, {
     method: 'POST',
-    headers: headers(),
+    headers: supabaseHeaders(),
     body: JSON.stringify({
       image: imageBase64,
       mimeType: 'image/jpeg',
@@ -116,7 +119,7 @@ export async function sharePrices(rows: SharedPrice[]): Promise<void> {
   if (!receiptsConfigured || rows.length === 0) return;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/receipt_prices`, {
     method: 'POST',
-    headers: { ...headers(), Prefer: 'return=minimal' },
+    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
     body: JSON.stringify(
       rows.map((r) => ({
         chain: r.chain,
@@ -134,7 +137,7 @@ export async function sharePrices(rows: SharedPrice[]): Promise<void> {
 export async function fetchCommunityPrices(city: string): Promise<PriceOverrides> {
   if (!receiptsConfigured) return {};
   const url = `${SUPABASE_URL}/rest/v1/community_prices?city=eq.${encodeURIComponent(city)}&reports=gte.2&select=chain,food_id,price_per_kg`;
-  const res = await fetch(url, { headers: headers() });
+  const res = await fetch(url, { headers: supabaseHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const rows = (await res.json()) as { chain: string; food_id: string; price_per_kg: number }[];
   const out: PriceOverrides = {};

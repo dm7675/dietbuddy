@@ -39,6 +39,7 @@ export default function RootLayout() {
         <Stack.Screen name="add-food" options={{ presentation: 'modal' }} />
         <Stack.Screen name="shopping" />
         <Stack.Screen name="shopping-settings" />
+        <Stack.Screen name="recipe" />
       </Stack>
       {celebrating ? <Celebration onDone={stopCelebrating} /> : null}
     </>

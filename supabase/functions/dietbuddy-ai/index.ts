@@ -1,5 +1,7 @@
-// Supabase Edge Function: reads a photo of a Croatian shop receipt with Google Gemini
-// and returns the store, date and each line matched to the app's food list.
+// Supabase Edge Function "dietbuddy-ai" — the app's only AI endpoint (Google Gemini).
+//   task "receipt" (default): reads a photo of a Croatian shop receipt and returns the store,
+//                             date and each line matched to the app's food list.
+//   task "recipe":            turns a meal (ingredients + grams) into a short home recipe.
 //
 // Secrets (Supabase dashboard → Edge Functions → Secrets):
 //   GEMINI_API_KEY  required — from https://aistudio.google.com/apikey (free tier, keep billing OFF)
@@ -27,6 +29,12 @@ interface RequestBody {
   mimeType?: string;
   foods: FoodRef[];
   chains: string[];
+}
+
+interface RecipeBody {
+  task: 'recipe';
+  language: 'en' | 'hr';
+  meal: { name: string; ingredients: { name: string; grams: number }[] };
 }
 
 /* ---------- Model choice ---------- */
@@ -110,24 +118,48 @@ function extractText(body: unknown): string {
   return (b.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('');
 }
 
-async function callGemini(key: string, model: string, req: RequestBody) {
-  const schema = buildSchema(
-    req.foods.map((f) => f.id),
-    req.chains,
-  );
-  const contents = [
-    {
-      parts: [
-        { inline_data: { mime_type: req.mimeType ?? 'image/jpeg', data: req.image } },
-        { text: buildPrompt(req.foods) },
-      ],
+/* ---------- Recipes ---------- */
+
+const RECIPE_SCHEMA = {
+  type: 'object',
+  properties: {
+    title: { type: 'string', description: 'Short, appetising name of the dish.' },
+    minutes: { type: 'integer', description: 'Total time in minutes.' },
+    steps: { type: 'array', items: { type: 'string' }, description: '4–8 short cooking steps, in order.' },
+    seasoning: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Calorie-free extras used: salt, pepper, herbs, spices, garlic, lemon juice, vinegar, water.',
     },
-  ];
+    tip: { type: 'string', description: 'One practical tip (meal prep, doneness, a swap). Empty if none.' },
+  },
+  required: ['title', 'minutes', 'steps', 'seasoning', 'tip'],
+};
+
+function recipePrompt(r: RecipeBody): string {
+  const lang = r.language === 'hr' ? 'Croatian (hrvatski)' : 'English';
+  const list = r.meal.ingredients.map((i) => `- ${Math.round(i.grams)} g ${i.name}`).join('\n');
+  return `Write a simple home recipe for ONE person, in ${lang}, for the meal "${r.meal.name}".
+
+Use exactly these ingredients and amounts (weights are before cooking: dry pasta/rice/grains, raw meat):
+${list}
+
+Rules:
+- Do not add anything with real calories (no extra oil, butter, sugar, cheese, cream or bread).
+- You may add salt, pepper, herbs, spices, garlic, a little onion, lemon juice, vinegar and water.
+- Ready-made items (frozen pizza, fries, ice cream, chocolate, bread) only need simple serving steps.
+- Use a normal home kitchen (stove, oven, pan, pot). Keep the steps short and practical.`;
+}
+
+/* ---------- Gemini call ---------- */
+
+async function callGemini(key: string, model: string, parts: unknown[], schema: unknown, temperature = 0) {
+  const contents = [{ parts }];
   // Current docs use responseFormat; older API versions used responseMimeType + responseJsonSchema.
   const configs = [
-    { responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema } }, temperature: 0 },
-    { responseMimeType: 'application/json', responseJsonSchema: schema, temperature: 0 },
-    { responseMimeType: 'application/json', temperature: 0 },
+    { responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema } }, temperature },
+    { responseMimeType: 'application/json', responseJsonSchema: schema, temperature },
+    { responseMimeType: 'application/json', temperature },
   ];
 
   let lastError = '';
@@ -164,12 +196,29 @@ Deno.serve(async (req) => {
   const key = Deno.env.get('GEMINI_API_KEY');
   if (!key) return json(500, { error: 'GEMINI_API_KEY secret is not set' });
 
-  let body: RequestBody;
+  let raw: (RequestBody & { task?: string }) | RecipeBody;
   try {
-    body = await req.json();
+    raw = await req.json();
   } catch {
     return json(400, { error: 'Invalid JSON' });
   }
+
+  if (raw.task === 'recipe') {
+    const r = raw as RecipeBody;
+    const ingredients = Array.isArray(r.meal?.ingredients) ? r.meal.ingredients.slice(0, 12) : [];
+    if (ingredients.length === 0 || typeof r.meal?.name !== 'string') return json(400, { error: 'Missing meal' });
+    try {
+      const model = await pickModel(key);
+      const prompt = recipePrompt({ ...r, meal: { name: r.meal.name.slice(0, 80), ingredients } });
+      // A little creativity so "write a different version" gives a different recipe.
+      const recipe = await callGemini(key, model, [{ text: prompt }], RECIPE_SCHEMA, 0.7);
+      return json(200, { model, ...recipe });
+    } catch (e) {
+      return json(502, { error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  const body = raw as RequestBody;
   if (typeof body.image !== 'string' || body.image.length < 100) return json(400, { error: 'Missing image' });
   if (body.image.length > MAX_IMAGE_BYTES) return json(413, { error: 'Image too large' });
   if (!Array.isArray(body.foods) || body.foods.length === 0 || body.foods.length > 300) {
@@ -179,7 +228,15 @@ Deno.serve(async (req) => {
 
   try {
     const model = await pickModel(key);
-    const result = await callGemini(key, model, body);
+    const parts = [
+      { inline_data: { mime_type: body.mimeType ?? 'image/jpeg', data: body.image } },
+      { text: buildPrompt(body.foods) },
+    ];
+    const schema = buildSchema(
+      body.foods.map((f) => f.id),
+      body.chains,
+    );
+    const result = await callGemini(key, model, parts, schema);
     return json(200, { model, ...result });
   } catch (e) {
     return json(502, { error: e instanceof Error ? e.message : String(e) });

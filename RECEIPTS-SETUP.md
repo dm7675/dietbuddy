@@ -1,9 +1,9 @@
-# Receipt scanning setup (free, about 10 minutes)
+# AI setup: receipt scanning & recipes (free, about 10 minutes)
 
-Receipt scanning needs two free accounts:
+Receipt scanning and "Make it a recipe" need two free accounts:
 
 - **Google AI Studio** gives you a Gemini API key. Gemini is the AI that reads the photo.
-- **Supabase** runs a small server function that holds that key, and the shared price database.
+- **Supabase** runs one small server function, `dietbuddy-ai`, that holds that key. It also hosts the shared price database.
 
 The rest of the app works without them.
 
@@ -32,13 +32,13 @@ The rest of the app works without them.
 2. Paste everything from [`supabase/migrations/0001_receipt_prices.sql`](supabase/migrations/0001_receipt_prices.sql) and click **Run**.
 3. You should see "Success. No rows returned".
 
-## 4. Add the receipt-reading function
+## 4. Add the AI function
 
 **Option A: in the browser (easiest)**
 
 1. Open **Edge Functions** and click **Deploy a new function**, then **Via Editor**.
-2. Name it exactly `read-receipt`.
-3. Replace the example code with everything from [`supabase/functions/read-receipt/index.ts`](supabase/functions/read-receipt/index.ts), then click **Deploy**.
+2. Name it exactly `dietbuddy-ai`.
+3. Replace the example code with everything from [`supabase/functions/dietbuddy-ai/index.ts`](supabase/functions/dietbuddy-ai/index.ts), then click **Deploy**.
 4. Open the function's **Settings** (or **Details**), turn **off** "Verify JWT" / "Enforce JWT verification", and save.
 5. Go to **Edge Functions**, then **Secrets**, then **Add new secret**:
    - **Name:** `GEMINI_API_KEY`
@@ -50,7 +50,7 @@ The rest of the app works without them.
 ```bash
 npx supabase login
 npx supabase link --project-ref YOUR-PROJECT-ID
-npx supabase functions deploy read-receipt --no-verify-jwt
+npx supabase functions deploy dietbuddy-ai --no-verify-jwt
 npx supabase secrets set GEMINI_API_KEY=AIza...
 ```
 
@@ -62,7 +62,9 @@ npx supabase secrets set GEMINI_API_KEY=AIza...
 2. In the project folder, copy `.env.example` to **`.env.local`** and fill in both values.
 3. Restart the app with a clean cache: `npx expo start -c`
 
-The **Scan** tab now shows **Take photo** and **Choose photo** instead of "not set up".
+The **Scan** tab now shows **Take photo** and **Choose photo** instead of "not set up", and every meal's **Recipe** screen gets a **Make it a recipe** button.
+
+On **Render** (or any web host), add the same two values as environment variables instead of using `.env.local`. See [DEPLOY.md](DEPLOY.md).
 
 ---
 
@@ -84,6 +86,6 @@ Other users in your city get the **median** price once at least two receipts agr
 |---|---|
 | `GEMINI_API_KEY secret is not set` | Step 4.5: the secret name must match exactly. |
 | `HTTP 401` | "Verify JWT" is still on (step 4.4), or `.env.local` has the wrong key. |
-| `HTTP 404` | The function isn't named exactly `read-receipt`. |
+| `HTTP 404` | The function isn't named exactly `dietbuddy-ai`. |
 | `Gemini 429 …` | Free daily limit reached. Try again tomorrow. |
 | `Sharing failed` | The SQL in step 3 wasn't run (the table is missing). |

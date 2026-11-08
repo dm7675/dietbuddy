@@ -42,6 +42,7 @@ export function MealCard({
   eatenMeal,
   onToggleEaten,
   onSwap,
+  onRecipe,
 }: {
   slot: MealSlot;
   meal: PlannedMeal | null;
@@ -49,6 +50,7 @@ export function MealCard({
   eatenMeal?: PlannedMeal;
   onToggleEaten: () => void;
   onSwap: () => void;
+  onRecipe: () => void;
 }) {
   const { t } = useTranslation();
   const c = useColors();
@@ -105,6 +107,7 @@ export function MealCard({
               <AppText variant="caption" color="carbs">●</AppText> {t('meals.c')} {Math.round(totals.carbs)} g{'  '}
               <AppText variant="caption" color="fat">●</AppText> {t('meals.f')} {Math.round(totals.fat)} g
             </AppText>
+            <Chip label={t('recipe.open')} icon="book-outline" tone="wood" onPress={onRecipe} />
             {!eaten && meal ? <Chip label={t('meals.swap')} icon="swap-horizontal" tone="wood" onPress={onSwap} /> : null}
             <Chip
               label={eaten ? t('meals.eaten') : t('meals.markEaten')}

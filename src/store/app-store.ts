@@ -9,6 +9,7 @@ import type { MealItem, MealSlot, PlannedMeal, Swaps } from '@/lib/meal-generato
 import type { Pace, Profile } from '@/lib/nutrition';
 import { DEFAULT_PREFERENCES, type FoodPreferences } from '@/lib/preferences';
 import type { Budget, PriceOverrides } from '@/lib/prices';
+import type { Recipe } from '@/lib/recipes';
 
 interface AppState {
   language: Language;
@@ -29,6 +30,9 @@ interface AppState {
   saveMyPrices: (rows: { foodId: string; chain: string; price: number; date: string }[]) => void;
   clearMyPrices: () => void;
   setCommunity: (c: AppState['community']) => void;
+  /** Recipes already written, by meal (see recipeKey). Keeps the most recent 40. */
+  recipes: Record<string, Recipe>;
+  saveRecipe: (key: string, recipe: Recipe) => void;
   setLanguage: (lang: Language) => void;
   setProfile: (profile: Profile) => void;
   setPace: (pace: Pace) => void;
@@ -64,6 +68,12 @@ export const useAppStore = create<AppState>()(
         }),
       clearMyPrices: () => set({ myPrices: {} }),
       setCommunity: (community) => set({ community }),
+      recipes: {},
+      saveRecipe: (key, recipe) =>
+        set((s) => {
+          const entries = Object.entries(s.recipes).filter(([k]) => k !== key);
+          return { recipes: Object.fromEntries([...entries.slice(-39), [key, recipe]]) };
+        }),
       setLanguage: (language) => {
         void i18n.changeLanguage(language);
         set({ language });
@@ -98,13 +108,15 @@ export const useAppStore = create<AppState>()(
           budget: null,
           myPrices: {},
           community: null,
+          recipes: {},
         }),
     }),
     {
       name: 'dietbuddy-app',
-      version: 5,
+      version: 6,
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: ({ language, profile, pace, prefs, weights, city, stores, budget, myPrices, community }) => ({
+      partialize: ({ language, profile, pace, prefs, weights, city, stores, budget, myPrices, community, recipes }) => ({
+        recipes,
         myPrices,
         community,
         language,
@@ -122,6 +134,7 @@ export const useAppStore = create<AppState>()(
         if (version < 3) state.weights = state.profile ? { [dateKey()]: state.profile.weightKg } : {};
         if (version < 4) Object.assign(state, { city: null, stores: [], budget: null });
         if (version < 5) Object.assign(state, { myPrices: {}, community: null });
+        if (version < 6) Object.assign(state, { recipes: {} });
         return state;
       },
       onRehydrateStorage: () => (state) => {

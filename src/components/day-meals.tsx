@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
 import { useDayPlan } from '@/hooks/use-day-plan';
@@ -27,6 +28,7 @@ export function DayMeals({ date }: { date: string }) {
             meal={meal}
             eatenMeal={eatenMeal}
             onSwap={() => swapMeal(date, slot)}
+            onRecipe={() => router.push({ pathname: '/recipe', params: { date, slot } })}
             onToggleEaten={() => setEaten(date, slot, eatenMeal ? null : meal)}
           />
         );
