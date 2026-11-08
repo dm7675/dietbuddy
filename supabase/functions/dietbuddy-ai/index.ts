@@ -167,9 +167,14 @@ Rules:
 
 async function callGemini(key: string, model: string, parts: unknown[], schema: unknown, temperature = 0) {
   const contents = [{ parts }];
-  // Current docs use responseFormat; older API versions used responseMimeType + responseJsonSchema.
+  // Newer Flash models "think" before answering, which can take very long; these tasks
+  // don't need it, so ask for low thinking first. Current docs use responseFormat; older API
+  // versions used responseMimeType + responseJsonSchema. A 400 means "unknown field" → next one.
+  const low = { thinkingConfig: { thinkingLevel: 'low' } };
   const configs = [
+    { responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema } }, temperature, ...low },
     { responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema } }, temperature },
+    { responseMimeType: 'application/json', responseJsonSchema: schema, temperature, ...low },
     { responseMimeType: 'application/json', responseJsonSchema: schema, temperature },
     { responseMimeType: 'application/json', temperature },
   ];
@@ -183,7 +188,7 @@ async function callGemini(key: string, model: string, parts: unknown[], schema: 
         headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents, generationConfig }),
       },
-      40_000,
+      60_000,
     );
     const body = await res.json().catch(() => ({}));
     if (res.status === 400) {
@@ -217,6 +222,35 @@ Deno.serve(async (req) => {
     raw = await req.json();
   } catch {
     return json(400, { error: 'Invalid JSON' });
+  }
+
+  // Speed test: a tiny prompt to a few models (in parallel), to see which answer quickly.
+  if (raw.task === 'probe') {
+    const models = (raw as { models?: string[] }).models?.slice(0, 5) ?? [await pickModel(key)];
+    const results = await Promise.all(
+      models.map(async (model) => {
+        const started = Date.now();
+        try {
+          const res = await fetchWithTimeout(
+            `${GEMINI}/models/${model}:generateContent`,
+            {
+              method: 'POST',
+              headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: 'Reply with the single word OK.' }] }],
+                generationConfig: { thinkingConfig: { thinkingLevel: 'low' } },
+              }),
+            },
+            45_000,
+          );
+          const body = await res.json().catch(() => ({}));
+          return { model, status: res.status, ms: Date.now() - started, reply: extractText(body).slice(0, 40) || JSON.stringify(body).slice(0, 160) };
+        } catch (e) {
+          return { model, status: 0, ms: Date.now() - started, reply: e instanceof Error ? e.message : String(e) };
+        }
+      }),
+    );
+    return json(200, { results });
   }
 
   // Setup check: which model is used and whether Google answers. Sends no prompt.
